@@ -4,7 +4,7 @@ import { join } from 'path';
 
 export async function GET() {
   try {
-    const filePath = join(process.cwd(), 'node_data', 'nodes.json');
+    const filePath = join(process.cwd(), 'data', 'nodes.json');
     const fileContent = readFileSync(filePath, 'utf8');
     const data = JSON.parse(fileContent);
     
