@@ -24,3 +24,19 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ReactFlow node label styling */
+.react-flow__node-default .react-flow__node-label,
+.react-flow__node-input .react-flow__node-label,
+.react-flow__node-output .react-flow__node-label {
+  color: #000000 !important;
+}
+
+/* Additional styling to ensure all node text is black */
+.react-flow__node {
+  color: #000000 !important;
+}
+
+.react-flow__node .react-flow__handle {
+  background-color: #007acc;
+}
