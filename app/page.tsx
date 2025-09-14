@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import FlowGraph from './FlowGraph';
+import FlowGraph from './components/FlowGraph';
 
 type NodeType = { id: string; position: { x: number; y: number }; data: { label: string }; type?: string };
 type EdgeType = { id: string; source: string; target: string; animated: boolean };
