@@ -15,10 +15,14 @@ export default function App() {
       try {
         const response = await fetch('/api/get-nodes');
         const data = await response.json();
-        setNodes(data.nodes);
-        setEdges(data.edges);
+        console.log('Fetched data:', data);
+        setNodes(data.nodes || []);
+        setEdges(data.edges || []);
       } catch (error) {
         console.error('Error fetching nodes:', error);
+        // Set empty arrays on error
+        setNodes([]);
+        setEdges([]);
       } finally {
         setLoading(false);
       }
@@ -26,6 +30,8 @@ export default function App() {
 
     fetchData();
   }, []);
+
+  console.log('App render:', { nodes: nodes?.length, edges: edges?.length, loading });
 
   if (loading) {
     return (
