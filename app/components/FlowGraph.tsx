@@ -59,7 +59,7 @@ export default function FlowGraph({ initialNodes, initialEdges }: FlowGraphProps
         startScenarioInput();
       }, 100);
     }
-  }, [nodes?.length, showScenarioInput, showQuestions, startScenarioInput]);
+  }, [nodes, showScenarioInput, showQuestions, startScenarioInput]);
 
   // Handle node clicks
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {

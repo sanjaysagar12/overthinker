@@ -40,7 +40,7 @@ export default function ScenarioInputModal({
             Start Your AI-Powered Decision Flow
           </h3>
           <p className="text-gray-600 leading-relaxed max-w-xl mx-auto">
-            Describe your situation or decision, and I'll help you explore it with intelligent questions and outcome predictions
+            Describe your situation or decision, and I&apos;ll help you explore it with intelligent questions and outcome predictions
           </p>
         </div>
         

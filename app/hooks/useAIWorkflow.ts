@@ -59,22 +59,6 @@ export function useAIWorkflow() {
     }
   }, []);
 
-  const submitAnswer = useCallback(() => {
-    if (!currentAnswer.trim()) return;
-
-    const updatedAnswers = [...questionAnswers, currentAnswer.trim()];
-    setQuestionAnswers(updatedAnswers);
-    setCurrentAnswer('');
-
-    if (currentQuestionIndex < aiQuestions.length - 1) {
-      // Move to next question
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
-    } else {
-      // All questions answered, get outcome prediction
-      predictOutcomes(updatedAnswers);
-    }
-  }, [currentAnswer, questionAnswers, currentQuestionIndex, aiQuestions]);
-
   const predictOutcomes = useCallback(async (answers: string[]) => {
     setLoading(true);
     try {
@@ -102,6 +86,22 @@ export function useAIWorkflow() {
       setLoading(false);
     }
   }, [scenario]);
+
+  const submitAnswer = useCallback(() => {
+    if (!currentAnswer.trim()) return;
+
+    const updatedAnswers = [...questionAnswers, currentAnswer.trim()];
+    setQuestionAnswers(updatedAnswers);
+    setCurrentAnswer('');
+
+    if (currentQuestionIndex < aiQuestions.length - 1) {
+      // Move to next question
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      // All questions answered, get outcome prediction
+      predictOutcomes(updatedAnswers);
+    }
+  }, [currentAnswer, questionAnswers, currentQuestionIndex, aiQuestions, predictOutcomes]);
 
   const resetWorkflow = useCallback(() => {
     setShowScenarioInput(false);
