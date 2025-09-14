@@ -35,17 +35,13 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ 
-        width: '100vw', 
-        height: '100vh', 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center' 
-      }}>
+      <div className="w-screen h-screen flex justify-center items-center">
         Loading...
       </div>
     );
   }
 
-  return <FlowGraph initialNodes={nodes} initialEdges={edges} />;
+  return (
+    <FlowGraph initialNodes={nodes} initialEdges={edges} />
+  );
 }
