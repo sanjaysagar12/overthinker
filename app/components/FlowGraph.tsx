@@ -18,19 +18,27 @@ export default function FlowGraph({ initialNodes, initialEdges }: FlowGraphProps
   const [selectedNode, setSelectedNode] = useState<NodeType | null>(null);
   const [newNodeLabel, setNewNodeLabel] = useState('');
   const [isCreatingFirstNode, setIsCreatingFirstNode] = useState(false);
+  const [showScenarioInput, setShowScenarioInput] = useState(false);
+  const [scenario, setScenario] = useState('');
+  const [aiQuestions, setAiQuestions] = useState<string[]>([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [questionAnswers, setQuestionAnswers] = useState<string[]>([]);
+  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [showOutcome, setShowOutcome] = useState(false);
+  const [outcomeAnalysis, setOutcomeAnalysis] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Check if nodes array is empty and show popup for first node creation
+  // Check if nodes array is empty and show scenario input for AI integration
   useEffect(() => {
     console.log('Nodes check:', { nodes: nodes?.length, showPopup, isCreatingFirstNode });
-    if (nodes && nodes.length === 0 && !showPopup) {
-      console.log('Setting up first node creation');
+    if (nodes && nodes.length === 0 && !showPopup && !showScenarioInput) {
+      console.log('Setting up scenario input for AI integration');
       // Small delay to ensure UI is ready
       setTimeout(() => {
-        setIsCreatingFirstNode(true);
-        setShowPopup(true);
+        setShowScenarioInput(true);
       }, 100);
     }
-  }, [nodes?.length, showPopup]);
+  }, [nodes?.length, showPopup, showScenarioInput]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<NodeType>[]) => {
@@ -87,7 +95,298 @@ export default function FlowGraph({ initialNodes, initialEdges }: FlowGraphProps
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     setSelectedNode(node as NodeType);
-    setShowPopup(true);
+    // Start AI workflow for existing nodes
+    startAIWorkflow(node as NodeType);
+  }, []);
+
+  const startAIWorkflow = useCallback(async (node: NodeType) => {
+    setLoading(true);
+    setCurrentQuestionIndex(0);
+    setQuestionAnswers([]);
+    setCurrentAnswer('');
+    
+    try {
+      // Generate questions based on the node label/scenario
+      const response = await fetch('/api/ai/question', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ scenario: node.data.label }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setAiQuestions(data.questions);
+        setShowPopup(true);
+      } else {
+        console.error('Failed to generate questions:', data.error);
+        // Fallback to simple node creation
+        setShowPopup(true);
+      }
+    } catch (error) {
+      console.error('Error calling AI:', error);
+      setShowPopup(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleScenarioSubmit = useCallback(async () => {
+    if (!scenario.trim()) return;
+    
+    setLoading(true);
+    try {
+      // Generate questions based on scenario
+      const response = await fetch('/api/ai/question', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ scenario: scenario.trim() }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setAiQuestions(data.questions);
+        setCurrentQuestionIndex(0);
+        setQuestionAnswers([]);
+        setCurrentAnswer('');
+        setShowScenarioInput(false);
+        setIsCreatingFirstNode(true);
+        setShowPopup(true);
+      } else {
+        console.error('Failed to generate questions:', data.error);
+      }
+    } catch (error) {
+      console.error('Error calling AI:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [scenario]);
+
+  const handleAnswerSubmit = useCallback(() => {
+    if (!currentAnswer.trim()) return;
+
+    const updatedAnswers = [...questionAnswers, currentAnswer.trim()];
+    setQuestionAnswers(updatedAnswers);
+    setCurrentAnswer('');
+
+    if (currentQuestionIndex < aiQuestions.length - 1) {
+      // Move to next question
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      // All questions answered, get outcome prediction
+      predictOutcomes(updatedAnswers);
+    }
+  }, [currentAnswer, questionAnswers, currentQuestionIndex, aiQuestions]);
+
+  const predictOutcomes = useCallback(async (answers: string[]) => {
+    setLoading(true);
+    try {
+      // Combine scenario and answers for outcome prediction
+      const fullPrompt = isCreatingFirstNode 
+        ? `${scenario}. Additional context: ${answers.join(' ')}`
+        : `${selectedNode?.data.label}. Additional context: ${answers.join(' ')}`;
+
+      const response = await fetch('/api/ai/predict', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: fullPrompt }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setOutcomeAnalysis(data.analysis);
+        setShowOutcome(true);
+      } else {
+        console.error('Failed to predict outcomes:', data.error);
+      }
+    } catch (error) {
+      console.error('Error predicting outcomes:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [scenario, selectedNode, isCreatingFirstNode]);
+
+  const handleCreateNodeWithOutcome = useCallback(async () => {
+    const nodeLabel = isCreatingFirstNode ? scenario : selectedNode?.data.label || 'Node';
+    
+    if (isCreatingFirstNode) {
+      // Create first node with scenario as label
+      const firstNode: NodeType = {
+        id: '1',
+        position: { x: 400, y: 50 },
+        data: { label: scenario.substring(0, 50) + (scenario.length > 50 ? '...' : '') },
+        type: 'input'
+      };
+
+      // Create outcome nodes directly without category nodes
+      const outcomeNodes: NodeType[] = [];
+      const outcomeEdges: EdgeType[] = [];
+      let nodeId = 2;
+      let xPosition = 100; // Starting x position
+
+      // Create nodes directly from positive outcomes with animation
+      if (outcomeAnalysis?.positive_outcomes) {
+        outcomeAnalysis.positive_outcomes.forEach((outcome: string, index: number) => {
+          const outcomeNode: NodeType = {
+            id: String(nodeId++),
+            position: { x: xPosition + (index * 200), y: 200 },
+            data: { label: outcome.substring(0, 40) + (outcome.length > 40 ? '...' : '') },
+            type: 'output'
+          };
+          outcomeNodes.push(outcomeNode);
+          outcomeEdges.push({
+            id: `e1-${outcomeNode.id}`,
+            source: '1',
+            target: outcomeNode.id,
+            animated: true // Animation for positive outcomes
+          });
+        });
+        
+        // Update x position for next set of nodes
+        xPosition += outcomeAnalysis.positive_outcomes.length * 200 + 100;
+      }
+
+      // Create nodes directly from negative outcomes without animation
+      if (outcomeAnalysis?.negative_outcomes) {
+        outcomeAnalysis.negative_outcomes.forEach((outcome: string, index: number) => {
+          const outcomeNode: NodeType = {
+            id: String(nodeId++),
+            position: { x: xPosition + (index * 200), y: 200 },
+            data: { label: outcome.substring(0, 40) + (outcome.length > 40 ? '...' : '') },
+            type: 'output'
+          };
+          outcomeNodes.push(outcomeNode);
+          outcomeEdges.push({
+            id: `e1-${outcomeNode.id}`,
+            source: '1',
+            target: outcomeNode.id,
+            animated: false // No animation for negative outcomes
+          });
+        });
+      }
+
+      const allNodes = [firstNode, ...outcomeNodes];
+      const allEdges = outcomeEdges;
+
+      // Update state
+      setNodes(allNodes);
+      setEdges(allEdges);
+
+      // Save to file
+      const updatedData = { nodes: allNodes, edges: allEdges };
+      try {
+        await fetch('/api/update-nodes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedData),
+        });
+      } catch (error) {
+        console.error('Error updating file:', error);
+      }
+    } else {
+      // Handle adding outcome nodes to existing selected node
+      if (!selectedNode || !nodes || !edges) return;
+
+      // Generate new node IDs starting from the highest existing ID
+      let nodeId = Math.max(...nodes.map(n => parseInt(n.id))) + 1;
+      const newNodes: NodeType[] = [];
+      const newEdges: EdgeType[] = [];
+      
+      // Calculate position for child nodes
+      const baseY = selectedNode.position.y + 150;
+      let xPosition = selectedNode.position.x - 200; // Start to the left of parent
+
+      // Create child nodes from positive outcomes with animation
+      if (outcomeAnalysis?.positive_outcomes) {
+        outcomeAnalysis.positive_outcomes.forEach((outcome: string, index: number) => {
+          const childNode: NodeType = {
+            id: String(nodeId++),
+            position: { x: xPosition + (index * 180), y: baseY },
+            data: { label: outcome.substring(0, 35) + (outcome.length > 35 ? '...' : '') },
+            type: 'output'
+          };
+          newNodes.push(childNode);
+          newEdges.push({
+            id: `e${selectedNode.id}-${childNode.id}`,
+            source: selectedNode.id,
+            target: childNode.id,
+            animated: true // Animation for positive outcomes
+          });
+        });
+        
+        // Update x position for negative outcomes
+        xPosition += outcomeAnalysis.positive_outcomes.length * 180 + 50;
+      }
+
+      // Create child nodes from negative outcomes without animation
+      if (outcomeAnalysis?.negative_outcomes) {
+        outcomeAnalysis.negative_outcomes.forEach((outcome: string, index: number) => {
+          const childNode: NodeType = {
+            id: String(nodeId++),
+            position: { x: xPosition + (index * 180), y: baseY },
+            data: { label: outcome.substring(0, 35) + (outcome.length > 35 ? '...' : '') },
+            type: 'output'
+          };
+          newNodes.push(childNode);
+          newEdges.push({
+            id: `e${selectedNode.id}-${childNode.id}`,
+            source: selectedNode.id,
+            target: childNode.id,
+            animated: false // No animation for negative outcomes
+          });
+        });
+      }
+
+      // Update selected node type to 'default' if it was 'output'
+      const updatedNodes = nodes.map(node => 
+        node.id === selectedNode.id && node.type === 'output'
+          ? { ...node, type: 'default' }
+          : node
+      );
+
+      // Add new nodes to existing nodes
+      const allNodes = [...updatedNodes, ...newNodes];
+      const allEdges = [...edges, ...newEdges];
+
+      // Update state
+      setNodes(allNodes);
+      setEdges(allEdges);
+
+      // Save to file
+      const updatedData = { nodes: allNodes, edges: allEdges };
+      try {
+        await fetch('/api/update-nodes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedData),
+        });
+      } catch (error) {
+        console.error('Error updating file:', error);
+      }
+    }
+
+    // Reset all states
+    resetAIStates();
+  }, [scenario, selectedNode, isCreatingFirstNode, outcomeAnalysis, nodes, edges]);
+
+  const resetAIStates = useCallback(() => {
+    setShowPopup(false);
+    setShowScenarioInput(false);
+    setShowOutcome(false);
+    setScenario('');
+    setAiQuestions([]);
+    setCurrentQuestionIndex(0);
+    setQuestionAnswers([]);
+    setCurrentAnswer('');
+    setSelectedNode(null);
+    setIsCreatingFirstNode(false);
+    setOutcomeAnalysis(null);
+    setNewNodeLabel('');
   }, []);
 
   const handleCreateNode = useCallback(async () => {
@@ -247,22 +546,13 @@ export default function FlowGraph({ initialNodes, initialEdges }: FlowGraphProps
   }, [isCreatingFirstNode]);
 
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
-      {/* Show empty state message when no nodes and no popup */}
-      {nodes && nodes.length === 0 && !showPopup && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          textAlign: 'center',
-          color: '#666',
-          fontSize: '18px',
-          zIndex: 10
-        }}>
-          <div>No nodes found</div>
-          <div style={{ fontSize: '14px', marginTop: '10px' }}>
-            Initializing first node creation...
+    <div className="w-screen h-screen">
+      {/* Show empty state message when no nodes and no scenario input */}
+      {nodes && nodes.length === 0 && !showScenarioInput && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center text-gray-600 text-lg z-10">
+          <div>No flow found</div>
+          <div className="text-sm mt-2">
+            Initializing AI-powered flow creation...
           </div>
         </div>
       )}
@@ -280,79 +570,148 @@ export default function FlowGraph({ initialNodes, initialEdges }: FlowGraphProps
         fitView
       />
       
-      {showPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '20px',
-            borderRadius: '8px',
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-            minWidth: '300px'
-          }}>
-            <h3 style={{ margin: '0 0 15px 0' }}>
-              {isCreatingFirstNode ? 'Create Your First Node' : 'Add New Node'}
+      {/* Scenario Input Modal */}
+      {showScenarioInput && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[1000]">
+          <div className="bg-white p-8 rounded-xl shadow-2xl max-w-2xl w-[90%]">
+            <h3 className="text-xl font-semibold text-gray-800 text-center mb-5">
+              🚀 Start Your AI-Powered Decision Flow
             </h3>
-            <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>
-              {isCreatingFirstNode 
-                ? 'Start building your flow by creating the first node'
-                : `Creating child node for: ${selectedNode?.data.label}`
-              }
+            <p className="text-base text-gray-600 text-center mb-5">
+              Describe your situation or decision, and I'll help you explore it with questions and outcome predictions
             </p>
-            <input
-              type="text"
-              value={newNodeLabel}
-              onChange={(e) => setNewNodeLabel(e.target.value)}
-              placeholder="Enter node label"
-              style={{
-                width: '100%',
-                padding: '10px',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                marginBottom: '15px',
-                fontSize: '14px'
-              }}
+            <textarea
+              value={scenario}
+              onChange={(e) => setScenario(e.target.value)}
+              placeholder="Describe your scenario, situation, or decision you're facing..."
+              className="w-full h-30 p-4 border-2 border-gray-200 rounded-lg text-base resize-y font-inherit focus:border-blue-500 focus:outline-none"
               autoFocus
-              onKeyPress={(e) => e.key === 'Enter' && handleCreateNode()}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-              {!isCreatingFirstNode && (
+            <div className="flex justify-end gap-4 mt-5">
+              <button
+                onClick={handleScenarioSubmit}
+                disabled={loading || !scenario.trim()}
+                className={`px-8 py-3 border-none rounded-lg text-base font-bold transition-colors ${
+                  loading || !scenario.trim() 
+                    ? 'bg-gray-400 text-white cursor-not-allowed' 
+                    : 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700'
+                }`}
+              >
+                {loading ? 'Analyzing...' : 'Start AI Analysis'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Questions & Answers Modal */}
+      {showPopup && aiQuestions.length > 0 && !showOutcome && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[1000]">
+          <div className="bg-white p-8 rounded-xl shadow-2xl max-w-3xl w-[90%]">
+            <h3 className="text-xl font-semibold text-gray-800 mb-5">
+              🤔 Question {currentQuestionIndex + 1} of {aiQuestions.length}
+            </h3>
+            <div className="bg-gray-50 p-5 rounded-lg mb-5 border border-gray-200">
+              <p className="text-base text-gray-800 leading-relaxed m-0">
+                {aiQuestions[currentQuestionIndex]}
+              </p>
+            </div>
+            <textarea
+              value={currentAnswer}
+              onChange={(e) => setCurrentAnswer(e.target.value)}
+              placeholder="Share your thoughts and insights..."
+              className="w-full h-30 p-4 border-2 border-gray-200 rounded-lg text-sm resize-y font-inherit focus:border-blue-500 focus:outline-none"
+              autoFocus
+            />
+            <div className="flex justify-between items-center mt-5">
+              <div className="text-gray-600 text-sm">
+                Progress: {questionAnswers.length}/{aiQuestions.length} answered
+              </div>
+              <div className="flex gap-3">
                 <button
-                  onClick={handleCancelPopup}
-                  style={{
-                    padding: '8px 16px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    backgroundColor: 'white',
-                    cursor: 'pointer'
-                  }}
+                  onClick={resetAIStates}
+                  className="px-5 py-2 border border-gray-300 rounded bg-white text-gray-600 cursor-pointer hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
-              )}
+                <button
+                  onClick={handleAnswerSubmit}
+                  disabled={!currentAnswer.trim() || loading}
+                  className={`px-6 py-2 border-none rounded font-bold transition-colors ${
+                    !currentAnswer.trim() || loading
+                      ? 'bg-gray-400 text-white cursor-not-allowed'
+                      : 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700'
+                  }`}
+                >
+                  {loading ? 'Processing...' : (currentQuestionIndex < aiQuestions.length - 1 ? 'Next Question' : 'Predict Outcomes')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Outcome Display Modal */}
+      {showOutcome && outcomeAnalysis && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-[1000]">
+          <div className="bg-white p-8 rounded-xl shadow-2xl max-w-4xl w-[90%] max-h-[80vh] overflow-auto">
+            <h3 className="text-xl font-semibold text-gray-800 text-center mb-5">
+              🔮 Predicted Outcomes
+            </h3>
+            
+            {outcomeAnalysis.analysis_summary && (
+              <div className="bg-blue-50 p-4 rounded-lg mb-5 border border-blue-200">
+                <p className="text-blue-800 text-sm m-0">
+                  {outcomeAnalysis.analysis_summary}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-3 mb-5">
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h4 className="text-gray-800 font-semibold mb-3 m-0">📋 All Outcomes</h4>
+                <div className="space-y-2">
+                  {/* Positive outcomes with animation */}
+                  {outcomeAnalysis.positive_outcomes?.map((outcome: string, index: number) => (
+                    <div 
+                      key={`positive-${index}`} 
+                      className="positive-outcome flex items-start gap-2 p-3 rounded-lg bg-green-50 border-l-4 border-green-500 hover:bg-green-100 transition-all duration-300"
+                    >
+                      <span className="text-green-600 font-bold text-base">✨</span>
+                      <span className="text-green-800 text-sm flex-1 font-medium">
+                        {outcome}
+                      </span>
+                    </div>
+                  ))}
+                  
+                  {/* Negative outcomes without animation */}
+                  {outcomeAnalysis.negative_outcomes?.map((outcome: string, index: number) => (
+                    <div 
+                      key={`negative-${index}`} 
+                      className="flex items-start gap-2 p-2 rounded bg-red-50 border-l-4 border-red-500 hover:bg-red-100 transition-colors duration-200"
+                    >
+                      <span className="text-red-600 font-bold text-sm">⚠️</span>
+                      <span className="text-red-800 text-sm flex-1">
+                        {outcome}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-center gap-4 mt-6">
               <button
-                onClick={handleCreateNode}
-                disabled={!newNodeLabel.trim()}
-                style={{
-                  padding: '8px 16px',
-                  border: 'none',
-                  borderRadius: '4px',
-                  backgroundColor: newNodeLabel.trim() ? '#007acc' : '#ccc',
-                  color: 'white',
-                  cursor: newNodeLabel.trim() ? 'pointer' : 'not-allowed'
-                }}
+                onClick={resetAIStates}
+                className="px-6 py-3 border border-gray-300 rounded-lg bg-white text-gray-600 cursor-pointer hover:bg-gray-50 transition-colors"
               >
-                {isCreatingFirstNode ? 'Create First Node' : 'Create Node'}
+                Start Over
+              </button>
+              <button
+                onClick={handleCreateNodeWithOutcome}
+                className="px-8 py-3 border-none rounded-lg bg-blue-600 text-white font-bold cursor-pointer hover:bg-blue-700 transition-colors"
+              >
+                Create Flow Chart
               </button>
             </div>
           </div>
